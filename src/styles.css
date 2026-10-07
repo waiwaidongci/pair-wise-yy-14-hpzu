@@ -126,6 +126,8 @@ button, input, textarea { font: inherit; }
 .coordinate-cell { color: #42645a; font-variant-numeric: tabular-nums; }
 .muted-text { margin-left: 8px; color: #8ca098; font-size: 11px; font-weight: 400; }
 .issue-descriptions { margin-top: 22px; }
+.recheck-alert { margin-top: 12px; }
+.ring-link { padding: 0; height: auto; font-weight: 700; letter-spacing: .02em; }
 .drawer-section { margin: 22px 0; padding: 13px 15px; border-left: 3px solid #35a782; background: #f1f7f5; }
 .drawer-section h5.ant-typography { margin-top: 0; }
 .drawer-section p.ant-typography { margin-bottom: 0; color: #47665d; }

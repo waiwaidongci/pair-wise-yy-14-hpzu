@@ -8,6 +8,7 @@ import {
   ToolOutlined,
 } from '@ant-design/icons'
 import {
+  Alert,
   App as AntdApp,
   Button,
   Card,
@@ -40,12 +41,15 @@ const statusMeta: Record<IssueStatus, { label: string; color: string }> = {
   accepted: { label: '已接受', color: 'green' },
   returned: { label: '已退回', color: 'volcano' },
   corrected: { label: '已修正', color: 'cyan' },
+  recheck: { label: '待复核', color: 'purple' },
 }
 
 export function ValidationPage() {
   const { message, modal } = AntdApp.useApp()
   const records = useValidationStore((state) => state.records)
   const issues = useValidationStore((state) => state.issues)
+  const groups = useValidationStore((state) => state.groups)
+  const recalcJob = useValidationStore((state) => state.recalcJob)
   const operations = useValidationStore((state) => state.operations)
   const selectedIssueIds = useValidationStore((state) => state.selectedIssueIds)
   const setSelectedIssueIds = useValidationStore((state) => state.setSelectedIssueIds)
@@ -53,6 +57,7 @@ export function ValidationPage() {
   const acceptIssues = useValidationStore((state) => state.acceptIssues)
   const returnIssues = useValidationStore((state) => state.returnIssues)
   const updateRecord = useValidationStore((state) => state.updateRecord)
+  const retryRecalc = useValidationStore((state) => state.retryRecalc)
   const rollback = useValidationStore((state) => state.rollback)
   const reset = useValidationStore((state) => state.reset)
   const [severity, setSeverity] = useState<IssueSeverity | 'all'>('all')
@@ -60,6 +65,7 @@ export function ValidationPage() {
   const [issueType, setIssueType] = useState<ValidationIssue['type'] | 'all'>('all')
   const [keyword, setKeyword] = useState('')
   const [activeIssueId, setActiveIssueId] = useState<string | null>(null)
+  const [editToken, setEditToken] = useState<number | undefined>(undefined)
   const [returnOpen, setReturnOpen] = useState(false)
   const [returnReason, setReturnReason] = useState('')
 
@@ -70,14 +76,33 @@ export function ValidationPage() {
   const activeIssue = issues.find((issue) => issue.id === activeIssueId) ?? null
   const activeRecord = records.find((record) => record.id === activeIssue?.recordId) ?? null
 
+  const openIssue = (issueId: string) => {
+    const issue = issues.find((item) => item.id === issueId)
+    // 记录打开时的分组版本作为乐观锁令牌，保存时校验分组是否被其他页面推进
+    setEditToken(issue?.groupKey ? groups[issue.groupKey]?.revision : undefined)
+    setActiveIssueId(issueId)
+  }
+
   const ruleItems: MenuProps['items'] = ISSUE_RULES.filter((rule) => rule.correctionMode === 'automatic').map((rule) => ({
     key: rule.type,
     label: `${rule.label}（${issues.filter((issue) => issue.type === rule.type && issue.status === 'open').length}）`,
   }))
 
   const runBatchFix = (type: string) => {
-    const count = batchFix(type as ValidationIssue['type'])
-    void message.success(count ? `已按规则修正 ${count} 条问题` : '当前没有可自动修正的问题')
+    const result = batchFix(type as ValidationIssue['type'])
+    if (!result.ok) {
+      void message.warning(result.message ?? '批量修正未执行')
+      return
+    }
+    if (!result.applied) {
+      void message.info('当前没有可自动修正的问题')
+      return
+    }
+    const parts = [`已按规则修正 ${result.applied} 条问题`]
+    if (result.invalidated) parts.push(`${result.invalidated} 条同组旧结论失效重算`)
+    if (result.rechecked) parts.push(`${result.rechecked} 条已处置结论退回待复核`)
+    if (result.skipped) parts.push(`${result.skipped} 条因分组被其他页面更新而跳过`)
+    void message.success(parts.join('，'))
   }
 
   const columns: ColumnsType<ValidationIssue> = [
@@ -119,7 +144,11 @@ export function ValidationPage() {
       title: '状态',
       dataIndex: 'status',
       width: 100,
-      render: (value: IssueStatus) => <Tag color={statusMeta[value].color}>{statusMeta[value].label}</Tag>,
+      render: (value: IssueStatus, record) => (
+        <Tag color={statusMeta[value].color} title={record.invalidatedReason}>
+          {statusMeta[value].label}
+        </Tag>
+      ),
     },
     {
       title: '操作',
@@ -127,7 +156,7 @@ export function ValidationPage() {
       fixed: 'right',
       width: 120,
       render: (_, record) => (
-        <Button type="link" size="small" onClick={() => setActiveIssueId(record.id)}>
+        <Button type="link" size="small" onClick={() => openIssue(record.id)}>
           核验处置
         </Button>
       ),
@@ -137,6 +166,26 @@ export function ValidationPage() {
   return (
     <div className="page-stack">
       <StatsCards totalRecords={records.length} issues={issues} />
+      {recalcJob?.status === 'failed' && (
+        <Alert
+          showIcon
+          type="error"
+          message="联动重算中断"
+          description={`「${recalcJob.cause}」在分组 ${recalcJob.done.length}/${recalcJob.queue.length} 处中断：${recalcJob.error ?? '未知错误'}。已完成的分组结果已保留，可重试续算。`}
+          action={
+            <Button
+              size="small"
+              danger
+              onClick={() => {
+                retryRecalc()
+                void message.info('已从上一份完整结果继续重算')
+              }}
+            >
+              重试续算
+            </Button>
+          }
+        />
+      )}
       <Card className="tool-card" variant="borderless">
         <div className="toolbar-row">
           <Space wrap>
@@ -222,7 +271,7 @@ export function ValidationPage() {
                 ],
                 onClick: ({ key }) => {
                   if (key === 'csv') exportRecordsCsv(records, issues)
-                  else exportTransferJson(records, issues, operations)
+                  else exportTransferJson(records, issues, operations, groups)
                   void message.success('移交文件已生成')
                 },
               }}
@@ -261,7 +310,7 @@ export function ValidationPage() {
             preserveSelectedRowKeys: true,
           }}
           onRow={(record) => ({
-            onDoubleClick: () => setActiveIssueId(record.id),
+            onDoubleClick: () => openIssue(record.id),
           })}
         />
       </Card>
@@ -285,9 +334,16 @@ export function ValidationPage() {
         }}
         onSave={(value, reason) => {
           if (activeIssue && activeRecord) {
-            updateRecord(activeRecord.id, { [activeIssue.field]: value }, reason)
+            const result = updateRecord(activeRecord.id, { [activeIssue.field]: value }, reason, editToken)
+            if (result.conflict) {
+              void message.warning(result.message)
+              return
+            }
             setActiveIssueId(null)
-            void message.success('修正已保存，原值可回滚')
+            const parts = ['修正已保存，原值可回滚']
+            if (result.invalidated) parts.push(`同组 ${result.invalidated} 条旧结论已失效重算`)
+            if (result.rechecked) parts.push(`${result.rechecked} 条已处置结论退回待复核`)
+            void message.success(parts.join('，'))
           }
         }}
       />

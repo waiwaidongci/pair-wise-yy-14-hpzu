@@ -1,4 +1,4 @@
-import { CheckOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons'
 import {
   Alert,
   Button,
@@ -11,7 +11,7 @@ import {
   Typography,
 } from 'antd'
 import { useEffect, useState } from 'react'
-import type { BirdRecord, ValidationIssue } from '../types'
+import type { BirdRecord, IssueStatus, ValidationIssue } from '../types'
 
 interface IssueDetailDrawerProps {
   issue: ValidationIssue | null
@@ -23,6 +23,13 @@ interface IssueDetailDrawerProps {
 }
 
 const severityLabels = { error: '错误', warning: '警告', review: '待确认' }
+const statusLabels: Record<IssueStatus, string> = {
+  open: '待处理',
+  accepted: '已接受',
+  returned: '已退回',
+  corrected: '已修正',
+  recheck: '待复核',
+}
 
 export function IssueDetailDrawer({
   issue,
@@ -42,6 +49,7 @@ export function IssueDetailDrawer({
 
   if (!issue || !record) return null
   const color = issue.severity === 'error' ? 'red' : issue.severity === 'warning' ? 'gold' : 'blue'
+  const actionable = issue.status === 'open' || issue.status === 'recheck'
 
   return (
     <Drawer
@@ -51,7 +59,7 @@ export function IssueDetailDrawer({
       onClose={onClose}
       extra={<Tag color={color}>{severityLabels[issue.severity]}</Tag>}
       footer={
-        issue.status === 'open' ? (
+        actionable ? (
           <Space>
             <Button icon={<CloseOutlined />} onClick={() => reason.trim() && onReturn(reason)}>
               退回并说明
@@ -79,6 +87,16 @@ export function IssueDetailDrawer({
         message={issue.title}
         description={issue.description}
       />
+      {issue.status === 'recheck' && (
+        <Alert
+          className="recheck-alert"
+          showIcon
+          icon={<HistoryOutlined />}
+          type="warning"
+          message={`依据已变化，退回待复核（原结论：${issue.previousStatus ? statusLabels[issue.previousStatus] : '未知'}，已保留）`}
+          description={issue.invalidatedReason ? `失效原因：${issue.invalidatedReason}` : undefined}
+        />
+      )}
       <Descriptions
         className="issue-descriptions"
         title="记录上下文"
@@ -94,6 +112,13 @@ export function IssueDetailDrawer({
             key: 'species',
             label: '鸟种',
             children: `${record.speciesRaw} → ${record.speciesCanonical} (${record.scientificName})`,
+          },
+          {
+            key: 'group',
+            label: '环号分组',
+            children: issue.groupKey
+              ? `${issue.groupKey}（结论依据版本 v${issue.groupRevision ?? 1}）`
+              : '未入组',
           },
         ]}
       />

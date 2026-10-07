@@ -1,4 +1,4 @@
-import { Table, Tag, Tooltip, Typography } from 'antd'
+import { Button, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { BirdRecord } from '../types'
 
@@ -6,6 +6,8 @@ interface RecordTableProps {
   records: BirdRecord[]
   selectedRowKeys?: React.Key[]
   onSelectionChange?: (keys: React.Key[]) => void
+  onShowGroup?: (record: BirdRecord) => void
+  onEditRing?: (record: BirdRecord) => void
   height?: number
   compact?: boolean
 }
@@ -14,6 +16,8 @@ export function RecordTable({
   records,
   selectedRowKeys,
   onSelectionChange,
+  onShowGroup,
+  onEditRing,
   height = 560,
   compact = false,
 }: RecordTableProps) {
@@ -51,7 +55,19 @@ export function RecordTable({
       title: '归一化环号',
       dataIndex: 'normalizedRingCode',
       width: 150,
-      render: (value: string) => <strong className="ring-code">{value || '未识别'}</strong>,
+      render: (value: string, record) =>
+        onShowGroup && record.groupKey ? (
+          <Button
+            type="link"
+            size="small"
+            className="ring-link"
+            onClick={() => onShowGroup(record)}
+          >
+            {value || '未识别'}
+          </Button>
+        ) : (
+          <strong className="ring-code">{value || '未识别'}</strong>
+        ),
     },
     {
       title: '环志方案',
@@ -101,6 +117,21 @@ export function RecordTable({
           { title: '性别', dataIndex: 'sex', width: 70 },
           { title: '备注', dataIndex: 'remarks', width: 260, ellipsis: true },
         ]),
+    ...(onEditRing
+      ? [
+          {
+            title: '操作',
+            key: 'actions',
+            fixed: 'right' as const,
+            width: 96,
+            render: (_: unknown, record: BirdRecord) => (
+              <Button type="link" size="small" onClick={() => onEditRing(record)}>
+                改环号
+              </Button>
+            ),
+          },
+        ]
+      : []),
   ]
 
   return (

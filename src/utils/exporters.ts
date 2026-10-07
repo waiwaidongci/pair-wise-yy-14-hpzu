@@ -1,4 +1,4 @@
-import type { BirdRecord, OperationLog, ValidationIssue } from '../types'
+import type { BirdRecord, OperationLog, RingGroup, ValidationIssue } from '../types'
 
 function download(content: BlobPart, filename: string, type: string) {
   const blob = new Blob([content], { type })
@@ -13,7 +13,7 @@ function download(content: BlobPart, filename: string, type: string) {
 export function exportRecordsCsv(records: BirdRecord[], issues: ValidationIssue[]) {
   const issueByRecord = new Map<string, ValidationIssue[]>()
   issues
-    .filter((issue) => issue.status === 'open')
+    .filter((issue) => issue.status === 'open' || issue.status === 'recheck')
     .forEach((issue) => {
       issueByRecord.set(issue.recordId, [...(issueByRecord.get(issue.recordId) || []), issue])
     })
@@ -66,6 +66,7 @@ export function exportTransferJson(
   records: BirdRecord[],
   issues: ValidationIssue[],
   operations: OperationLog[],
+  groups: Record<string, RingGroup>,
 ) {
   const payload = {
     schemaVersion: 'CN-RING-2026.1',
@@ -73,12 +74,15 @@ export function exportTransferJson(
     center: '华东区域鸟类环志中心',
     summary: {
       records: records.length,
+      ringGroups: Object.keys(groups).length,
       unresolvedIssues: issues.filter((issue) => issue.status === 'open').length,
+      recheckIssues: issues.filter((issue) => issue.status === 'recheck').length,
       correctedIssues: issues.filter((issue) => issue.status === 'corrected').length,
       acceptedIssues: issues.filter((issue) => issue.status === 'accepted').length,
       returnedIssues: issues.filter((issue) => issue.status === 'returned').length,
     },
     records,
+    ringGroups: Object.values(groups),
     issues,
     auditTrail: operations.map(({ snapshot: _snapshot, ...operation }) => operation),
   }
@@ -87,13 +91,14 @@ export function exportTransferJson(
 
 export function exportValidationCsv(issues: ValidationIssue[], records: BirdRecord[]) {
   const recordsById = new Map(records.map((record) => [record.id, record]))
-  const headers = ['问题编号', '记录编号', '级别', '类型', '字段', '当前值', '建议值', '状态', '返回原因', '原始环号', '鸟种']
+  const headers = ['问题编号', '记录编号', '级别', '类型', '字段', '当前值', '建议值', '状态', '原结论', '失效原因', '返回原因', '原始环号', '鸟种']
   const labels = { error: '错误', warning: '警告', review: '待确认' }
   const statusLabels = {
     open: '待处理',
     accepted: '已接受',
     returned: '已退回',
     corrected: '已修正',
+    recheck: '待复核',
   }
   const rows = issues.map((issue) => {
     const record = recordsById.get(issue.recordId)
@@ -106,6 +111,8 @@ export function exportValidationCsv(issues: ValidationIssue[], records: BirdReco
       issue.currentValue,
       issue.suggestedValue,
       statusLabels[issue.status],
+      issue.previousStatus ? statusLabels[issue.previousStatus] : '',
+      issue.invalidatedReason || '',
       issue.returnReason || '',
       record?.rawRingCode || '',
       record?.speciesCanonical || '',
