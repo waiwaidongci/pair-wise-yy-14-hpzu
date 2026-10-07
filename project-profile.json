@@ -1,0 +1,11 @@
+{
+  "projectId": "pair-wise-yy-14",
+  "projectName": "雁迹环志数据校验与移交工具",
+  "category": "数据质量治理",
+  "businessDomain": "生态保护与鸟类环志",
+  "projectForm": "完整项目",
+  "codeScope": "frontend",
+  "languages": "React, TypeScript, Ant Design, Zustand, React Router, Vite",
+  "summary": "合并多来源鸟类环志记录，归一化环号、鸟种与坐标，检查跨年重复和迁徙地点跳变，支持规则修正、人工退回、操作回滚及区域中心标准导出。",
+  "containerized": false
+}

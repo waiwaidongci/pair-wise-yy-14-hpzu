@@ -1,0 +1,6 @@
+node_modules
+dist
+.vite
+*.log
+node_modules/.runtime
+.DS_Store
