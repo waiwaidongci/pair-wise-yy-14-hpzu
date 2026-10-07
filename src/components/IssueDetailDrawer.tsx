@@ -1,4 +1,4 @@
-import { CheckOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons'
 import {
   Alert,
   Button,
@@ -79,6 +79,41 @@ export function IssueDetailDrawer({
         message={issue.title}
         description={issue.description}
       />
+      {issue.superseded && (
+        <Alert
+          showIcon
+          type="info"
+          className="drawer-alert"
+          message="该结论已失效"
+          description="判定依据变化后问题已消除，原处置结论已留存，可在操作历史中追溯。"
+        />
+      )}
+      {issue.reopenedAt && !issue.superseded && (
+        <Alert
+          showIcon
+          type="warning"
+          className="drawer-alert"
+          message="判定依据已变化，退回待复核"
+          description="改环后旧组与新组已重算，原处置结论已留存，请依据新分组重新核验。"
+        />
+      )}
+      {issue.decisionHistory && issue.decisionHistory.length > 0 && (
+        <div className="drawer-section">
+          <Typography.Title level={5}>
+            <HistoryOutlined /> 历史处置结论
+          </Typography.Title>
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            {issue.decisionHistory.map((item, index) => (
+              <div key={index} className="decision-history-item">
+                <Tag>{item.status === 'accepted' ? '已接受' : item.status === 'returned' ? '已退回' : '已修正'}</Tag>
+                <span>{item.note}</span>
+                {item.reason && <span className="muted-text">原因：{item.reason}</span>}
+                <span className="muted-text">{new Date(item.decidedAt).toLocaleString('zh-CN')}</span>
+              </div>
+            ))}
+          </Space>
+        </div>
+      )}
       <Descriptions
         className="issue-descriptions"
         title="记录上下文"

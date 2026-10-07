@@ -6,9 +6,11 @@ import {
   ReloadOutlined,
   RollbackOutlined,
   ToolOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import {
   App as AntdApp,
+  Alert,
   Button,
   Card,
   Dropdown,
@@ -55,6 +57,8 @@ export function ValidationPage() {
   const updateRecord = useValidationStore((state) => state.updateRecord)
   const rollback = useValidationStore((state) => state.rollback)
   const reset = useValidationStore((state) => state.reset)
+  const recalculationState = useValidationStore((state) => state.recalculationState)
+  const retryRecalculation = useValidationStore((state) => state.retryRecalculation)
   const [severity, setSeverity] = useState<IssueSeverity | 'all'>('all')
   const [status, setStatus] = useState<IssueStatus | 'all'>('open')
   const [issueType, setIssueType] = useState<ValidationIssue['type'] | 'all'>('all')
@@ -118,8 +122,16 @@ export function ValidationPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 100,
-      render: (value: IssueStatus) => <Tag color={statusMeta[value].color}>{statusMeta[value].label}</Tag>,
+      width: 120,
+      render: (value: IssueStatus, record) =>
+        record.superseded ? (
+          <Tag color="default">已失效</Tag>
+        ) : (
+          <Space size={4} direction="vertical" style={{ lineHeight: 1.2 }}>
+            <Tag color={statusMeta[value].color}>{statusMeta[value].label}</Tag>
+            {record.reopenedAt && <Tag color="orange">已重核</Tag>}
+          </Space>
+        ),
     },
     {
       title: '操作',
@@ -245,6 +257,23 @@ export function ValidationPage() {
           </Space>
         </div>
       </Card>
+      {recalculationState.status === 'failed' && (
+        <Alert
+          className="recalc-alert"
+          showIcon
+          type="error"
+          icon={<WarningOutlined />}
+          message="分组联动重算失败，已恢复到上一份完整结果"
+          description={
+            <Space wrap>
+              <span>{recalculationState.error || '未知错误'}。可重试本次批量重算，不会覆盖已有结论。</span>
+              <Button size="small" type="primary" onClick={retryRecalculation}>
+                重试重算
+              </Button>
+            </Space>
+          }
+        />
+      )}
       <Card className="table-card" variant="borderless">
         <Table<ValidationIssue>
           virtual

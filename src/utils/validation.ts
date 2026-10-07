@@ -1,68 +1,15 @@
 import type { BirdRecord, IssueSeverity, ValidationIssue } from '../types'
-import { getLocationDistance } from '../data/mockRecords'
 import { normalizeRingCode, parseCoordinate } from './normalization'
-
-const SEVERITY_ORDER: Record<IssueSeverity, number> = {
-  error: 0,
-  warning: 1,
-  review: 2,
-}
+import { buildRingGroups, computeRingIssues, sortIssues } from './ringGroups'
 
 export function validateRecords(records: BirdRecord[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = []
-  const ringGroups = new Map<string, BirdRecord[]>()
+  const ringGroups = buildRingGroups(records)
+  const allIds = new Set(records.map((record) => record.id))
+  const ringIssues = computeRingIssues(records, ringGroups, allIds)
+
+  const issues: ValidationIssue[] = [...ringIssues]
 
   records.forEach((record) => {
-    const key = record.normalizedRingCode
-    const list = ringGroups.get(key) || []
-    list.push(record)
-    ringGroups.set(key, list)
-  })
-
-  records.forEach((record, index) => {
-    const ring = normalizeRingCode(record.rawRingCode)
-    const detectedAt = new Date().toISOString()
-    if (!ring.valid) {
-      issues.push({
-        id: `issue-ring-${record.id}`,
-        recordId: record.id,
-        type: 'ring_invalid',
-        severity: 'error',
-        title: '环号格式无法归一化',
-        description: `原始环号“${record.rawRingCode}”无法完整识别方案、年份和序列号。`,
-        field: 'rawRingCode',
-        currentValue: record.rawRingCode,
-        suggestedValue: `${ring.normalizedPrefix || 'CN'}-${new Date(record.observedAt).getFullYear()}-${String((index + 1) % 99999).padStart(5, '0')}`,
-        suggestion: '根据来源文件年份和原序列尾号补齐标准方案前缀。',
-        status: 'open',
-        detectedAt,
-      })
-    }
-
-    if (ring.valid) {
-      const sameRing = ringGroups.get(record.normalizedRingCode) || []
-      if (sameRing.length > 1) {
-        const otherYears = new Set(sameRing.map((item) => item.observedAt.slice(0, 4)))
-        const sourceCount = new Set(sameRing.map((item) => item.source)).size
-        if (otherYears.size > 1 || sourceCount > 1) {
-          issues.push({
-            id: `issue-duplicate-${record.id}`,
-            recordId: record.id,
-            type: 'ring_duplicate',
-            severity: 'error',
-            title: sourceCount > 1 ? '多来源环号重复' : '跨年份重复环号',
-            description: `归一化环号 ${record.normalizedRingCode} 在 ${otherYears.size} 个年度、${sourceCount} 个来源中共出现 ${sameRing.length} 次。`,
-            field: 'normalizedRingCode',
-            currentValue: record.normalizedRingCode,
-            suggestedValue: `${ring.normalizedPrefix}-${record.observedAt.slice(0, 4)}-${String((Number(ring.serial) + 710) % 99999).padStart(5, '0')}`,
-            suggestion: '核对原环照片或捕获登记表；确认非重捕记录后更换序列号。',
-            status: 'open',
-            detectedAt,
-          })
-        }
-      }
-    }
-
     if (record.scientificName === '待鉴定' || record.speciesCanonical !== record.speciesRaw) {
       const automatic = record.scientificName !== '待鉴定'
       issues.push({
@@ -79,9 +26,9 @@ export function validateRecords(records: BirdRecord[]): ValidationIssue[] {
         suggestedValue: automatic ? record.speciesCanonical : '',
         suggestion: automatic
           ? `采用规范中文名与学名 ${record.scientificName}。`
-          : '请由鉴定人员补充物种或注明仅鉴定至属/科。',
+          : '请由鉴定人员补充物种或注明仅鉴定至属或科。',
         status: 'open',
-        detectedAt,
+        detectedAt: new Date().toISOString(),
       })
     }
 
@@ -101,43 +48,12 @@ export function validateRecords(records: BirdRecord[]): ValidationIssue[] {
         suggestedValue: '',
         suggestion: '根据地点主表补齐十进制度数或标准度分秒格式。',
         status: 'open',
-        detectedAt,
+        detectedAt: new Date().toISOString(),
       })
     }
-
-    const previous = records
-      .slice(Math.max(0, index - 30), index)
-      .filter((item) => item.normalizedRingCode === record.normalizedRingCode)
-      .at(-1)
-    if (previous) {
-      const distance = getLocationDistance(record, previous)
-      const days = Math.abs(
-        (new Date(record.observedAt).getTime() - new Date(previous.observedAt).getTime()) /
-          86400000,
-      )
-      if (distance !== null && distance > 500 && days < 45) {
-        issues.push({
-          id: `issue-jump-${record.id}`,
-          recordId: record.id,
-          type: 'location_jump',
-          severity: 'warning',
-          title: '同环号地点异常跳变',
-          description: `与同环号上一条记录相距 ${Math.round(distance)} 公里，间隔仅 ${Math.max(1, Math.round(days))} 天。`,
-          field: 'location',
-          currentValue: record.location,
-          suggestedValue: previous.location,
-          suggestion: '核对观察日期、地点和环号；若为回收记录需补充运输或救助信息。',
-          status: 'open',
-          detectedAt,
-        })
-      }
-    }
   })
 
-  return issues.sort((a, b) => {
-    const severity = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
-    return severity || a.recordId.localeCompare(b.recordId)
-  })
+  return sortIssues(issues)
 }
 
 export function countBySeverity(issues: ValidationIssue[]) {
